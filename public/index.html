@@ -88,6 +88,178 @@ textarea.sans{font-family:Heebo,Arial,sans-serif}textarea:focus{outline:none}
 
 <section class="faq">
 <h2>שאלות נפוצות</h2>
+<h3>האם אפשר גם לקבל תשובה לשאלה שבתמונה?</h3><p>כן. באפשרויות התמלול בוחרים "תמלול ותשובה", ואם יש בתמונה שאלה או תרגיל, תתקבל גם תשובה אחרי הטקסט.</p>
+<h3>איך ממירים תמונה לטקסט?</h3><p>מצלמים או בוחרים תמונה, והטקסט מופיע תוך שניות. לוחצים על "העתקה" ומדביקים בכל מקום.</p>
+<h3>האם זה עובד בעברית ובכתב יד?</h3><p>כן. האתר קורא עברית, אנגלית ושפות נוספות, וגם כתב יד קריא.</p>
+<h3>האם זה בחינם?</h3><p>כן, עם מגבלה יומית של מספר תמלולים לכל כתובת אינטרנט (IP).</p>
+<h3>האם התמונות נשמרות?</h3><p>לא. התמונה נשלחת לתמלול בלבד ואינה נשמרת בשרת. ההיסטוריה נשמרת רק בדפדפן שלך.</p>
+</section>
+</main>
+
+<div class="actions" id="actions" hidden><div class="in">
+<button class="ghost" id="again">＋ חדש</button>
+<button class="ghost" id="redo">↻ מחדש</button>
+<button class="ghost" id="more" aria-label="שיתוף">⋯</button>
+<button class="primary" id="copy" disabled>העתקה</button>
+</div></div>
+
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var out=$("out"),statusEl=$("status"),errEl=$("err"),copyBtn=$("copy"),thumbs=$("thumbs"),start=$("start"),result=$("result"),actions=$("actions"),dirty=$("dirty"),paper=$("paper");
+var items=[],busy=false,fsz=21,H=[];
+var OPTS=[
+ {k:"what",t:"מה לתמלל",v:[["main","הטקסט הראשי"],["all","הכול"],["hand","רק כתב יד"]]},
+ {k:"fmt",t:"מבנה",v:[["para","פסקאות"],["lines","שורה בשורה"],["bullets","נקודות"],["sum","סיכום קצר"]]},
+ {k:"lang",t:"שפת הפלט",v:[["orig","כמו במקור"],["he","עברית"],["en","אנגלית"]]},
+ {k:"nik",t:"ניקוד",v:[["keep","כמו במקור"],["strip","בלי ניקוד"]]},
+ {k:"smart",t:"מצב חכם (מודל חזק יותר, איטי יותר, נספר כ-3 תמלולים)",v:[["","רגיל"],["1","חכם"]]},
+ {k:"answer",t:"שאלה בתמונה",v:[["","רק תמלול"],["1","תמלול ותשובה"]]}
+];
+var S={what:"main",fmt:"para",lang:"orig",nik:"keep",smart:"",answer:""};
+try{var sv=JSON.parse(localStorage.getItem("tt_opts")||"{}");for(var k in S)if(typeof sv[k]==="string")S[k]=sv[k];}catch(e){}
+function drawOpts(){var h="";OPTS.forEach(function(o){h+="<h3>"+o.t+'</h3><div class="chips">';o.v.forEach(function(v){h+='<button class="chip" data-k="'+o.k+'" data-v="'+v[0]+'" aria-pressed="'+(S[o.k]===v[0])+'">'+v[1]+"</button>";});h+="</div>";});$("opts").innerHTML=h;}
+drawOpts();
+$("opts").addEventListener("click",function(e){var b=e.target.closest(".chip");if(!b)return;S[b.dataset.k]=b.dataset.v;drawOpts();try{localStorage.setItem("tt_opts",JSON.stringify(S));}catch(x){}if(items.length)dirty.hidden=false;});
+
+function shrink(file){return new Promise(function(res,rej){var img=new Image(),u=URL.createObjectURL(file);img.onload=function(){var k=Math.min(1,2000/Math.max(img.naturalWidth,img.naturalHeight)),cv=document.createElement("canvas");cv.width=Math.round(img.naturalWidth*k);cv.height=Math.round(img.naturalHeight*k);cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);URL.revokeObjectURL(u);res(cv.toDataURL("image/jpeg",.88));};img.onerror=function(){URL.revokeObjectURL(u);rej();};img.src=u;});}
+function showErr(t){errEl.textContent=t;errEl.hidden=!t;}
+function upd(){copyBtn.disabled=busy||!out.value.trim();}
+function setBusy(b){busy=b;statusEl.textContent=b?"מתמלל…":"מוכן להעתקה";$("redo").disabled=b;upd();}
+function drawThumbs(){thumbs.innerHTML="";items.forEach(function(it){var f=document.createElement("figure"),im=document.createElement("img"),x=document.createElement("button");im.src=it.url;im.alt="";x.textContent="✕";x.setAttribute("aria-label","הסרה");x.onclick=function(){items=items.filter(function(i){return i!==it});if(!items.length)reset();else{drawThumbs();dirty.hidden=false;}};f.appendChild(im);f.appendChild(x);thumbs.appendChild(f);});}
+function addFiles(fl){var fs=[].filter.call(fl,function(f){return/^image\//.test(f.type)});fs.slice(0,5-items.length).forEach(function(f){items.push({file:f,url:URL.createObjectURL(f)});});if(!items.length)return;start.hidden=true;$("optsBox").hidden=false;result.hidden=false;actions.hidden=false;$("optsBox").removeAttribute("open");drawThumbs();run();}
+function reset(){items.forEach(function(i){URL.revokeObjectURL(i.url)});items=[];thumbs.innerHTML="";out.value="";showErr("");dirty.hidden=true;result.hidden=true;actions.hidden=true;start.hidden=false;upd();}
+
+async function run(){
+ if(!items.length||busy)return;
+ out.value="";showErr("");dirty.hidden=true;setBusy(true);
+ try{
+  var imgs=await Promise.all(items.map(function(i){return shrink(i.file)}));
+  var r=await fetch("/api/transcribe",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({images:imgs,options:Object.assign({},S,{smart:!!S.smart,answer:!!S.answer})})});
+  var j=await r.json();
+  if(!r.ok)throw new Error(j.error||"שגיאה");
+  out.value=j.text;saveHist(j.text);
+ }catch(e){showErr(e&&e.message?e.message:"משהו השתבש. נסו שוב.");}
+ finally{setBusy(false);}
+}
+
+try{H=JSON.parse(localStorage.getItem("tt_hist")||"[]");}catch(e){H=[];}
+function persist(){try{localStorage.setItem("tt_hist",JSON.stringify(H));}catch(e){}}
+function saveHist(t){t=(t||"").trim();if(!t||/^לא נמצא טקסט/.test(t))return;H=H.filter(function(x){return x.t!==t});H.unshift({t:t,d:Date.now()});H=H.slice(0,12);persist();drawHist();}
+function drawHist(){var box=$("histList");$("hist").hidden=!H.length;box.innerHTML="";H.forEach(function(x){var b=document.createElement("button");b.className="hi";b.dir="auto";b.textContent=x.t.split("\n")[0];b.onclick=function(){items=[];thumbs.innerHTML="";start.hidden=true;result.hidden=false;actions.hidden=false;dirty.hidden=true;showErr("");out.value=x.t;upd();window.scrollTo(0,0);};box.appendChild(b);});}
+$("clearH").onclick=function(){H=[];persist();drawHist();};
+drawHist();
+
+$("cam").onchange=function(e){addFiles(e.target.files);e.target.value="";};
+$("gal").onchange=function(e){addFiles(e.target.files);e.target.value="";};
+document.addEventListener("dragover",function(e){e.preventDefault();});
+document.addEventListener("drop",function(e){e.preventDefault();addFiles(e.dataTransfer.files);});
+document.addEventListener("paste",function(e){if(!e.clipboardData)return;var fs=[].filter.call(e.clipboardData.files,function(f){return/^image\//.test(f.type)});if(fs.length)addFiles(fs);});
+out.addEventListener("input",upd);
+$("again").onclick=reset;
+$("redo").onclick=function(){if(items.length)run();else showErr("אין תמונה לתמלל מחדש.");};
+$("fp").onclick=function(){fsz=Math.min(40,fsz+2);out.style.fontSize=fsz+"px";};
+$("fm").onclick=function(){fsz=Math.max(14,fsz-2);out.style.fontSize=fsz+"px";};
+$("ft").onclick=function(){out.classList.toggle("sans");};
+
+function fb(t){var a=document.createElement("textarea");a.value=t;a.style.cssText="position:fixed;opacity:0";document.body.appendChild(a);a.select();try{document.execCommand("copy")}catch(e){}document.body.removeChild(a);}
+function doCopy(t){return(navigator.clipboard&&navigator.clipboard.writeText)?navigator.clipboard.writeText(t).catch(function(){fb(t)}):(fb(t),Promise.resolve());}
+copyBtn.onclick=function(){var s=out.value.substring(out.selectionStart,out.selectionEnd).trim(),t=s||out.value.trim();if(!t)return;doCopy(t).then(function(){copyBtn.textContent="✓ הועתק";copyBtn.classList.add("done");setTimeout(function(){copyBtn.textContent="העתקה";copyBtn.classList.remove("done")},1800);});};
+$("more").onclick=async function(){var t=out.value.trim();if(!t)return;if(navigator.share){try{await navigator.share({text:t});return;}catch(e){if(e&&e.name==="AbortError")return;}}var a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+t],{type:"text/plain;charset=utf-8"}));a.download="תמלול.txt";a.click();};
+})();
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+{{GOOGLE_VERIFY}}
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 rx=%2722%27 fill=%27%23c4553a%27/%3E%3Ctext x=%2750%27 y=%2772%27 font-size=%2765%27 text-anchor=%27middle%27 fill=%27white%27%3E%E2%9C%8E%3C/text%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מתמלל – המרת תמונה לטקסט בעברית, כולל כתב יד | חינם</title>
+<meta name="description" content="מתמלל ממיר תמונה, שקופית או דף כתוב לטקסט נקי להעתקה בלחיצה אחת. עובד בעברית ובעוד שפות, עם חלוקה לפסקאות. חינם, בלי התקנה.">
+<meta name="keywords" content="המרת תמונה לטקסט, OCR בעברית, תמלול תמונה, תמלול כתב יד, העתקת טקסט מתמונה">
+<link rel="canonical" href="{{SITE_URL}}/">
+<meta property="og:url" content="{{SITE_URL}}/"><meta property="og:site_name" content="מתמלל"><meta property="og:type" content="website"><meta property="og:locale" content="he_IL">
+<meta property="og:title" content="מתמלל – מתמונה לטקסט להעתקה"><meta property="og:description" content="מצלמים או מעלים תמונה ומקבלים טקסט נקי בעברית, מוכן להעתקה.">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"מתמלל","applicationCategory":"UtilitiesApplication","inLanguage":"he","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"ILS"},"description":"המרת תמונה וכתב יד לטקסט להעתקה"}</script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;700&family=Heebo:wght@400;500;700&display=swap">
+<style>
+:root{--bg:#f6f1e8;--surface:#fffdf8;--text:#2a2320;--muted:#7a6e64;--line:#e4d9c8;--accent:#c4553a;--accent-text:#fff;--ok:#2f7d4f;--chip:#efe6d6;--shadow:0 10px 30px rgba(80,55,30,.10)}
+@media (prefers-color-scheme:dark){:root{--bg:#171310;--surface:#211b17;--text:#f1e9dd;--muted:#a89a8b;--line:#3a3028;--accent:#e57a5e;--accent-text:#1b100b;--ok:#6fd49a;--chip:#2e251f;--shadow:0 10px 30px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Heebo,Arial,sans-serif;line-height:1.6}
+main{max-width:760px;margin:0 auto;padding:24px 16px 140px}
+header{text-align:center;margin-bottom:20px}
+.logo{display:inline-grid;place-items:center;width:50px;height:50px;border-radius:15px;background:var(--accent);color:var(--accent-text);font-size:26px;box-shadow:var(--shadow)}
+h1{font-family:"Frank Ruhl Libre",serif;font-size:32px;margin:8px 0 2px}
+.sub{margin:0;color:var(--muted)}
+button,.btn{font:inherit;font-weight:700;font-size:16px;border:0;border-radius:14px;min-height:50px;padding:0 18px;cursor:pointer;color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:8px}
+button:focus-visible{outline:3px solid var(--text);outline-offset:2px}
+button[disabled]{opacity:.45;cursor:default}
+[hidden]{display:none!important}
+.primary{background:var(--accent);color:var(--accent-text);box-shadow:var(--shadow)}.primary.done{background:var(--ok);color:#fff}
+.ghost{background:var(--surface);border:1px solid var(--line)}
+.srcs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.src{display:flex;flex-direction:column;align-items:center;gap:6px;padding:26px 12px;background:var(--surface);border:2px dashed var(--line);border-radius:20px;text-align:center;cursor:pointer;box-shadow:var(--shadow)}
+.src:hover,.src:focus-within{border-color:var(--accent)}
+.src .ic{font-size:34px}.src b{font-size:18px}.src small{color:var(--muted)}
+.src input{position:absolute;width:1px;height:1px;opacity:0}
+.hint{text-align:center;color:var(--muted);font-size:14px;margin:12px 0 0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);margin-top:16px}
+details summary{cursor:pointer;padding:14px 16px;font-weight:700}
+.og{padding:0 16px 14px}.og h3{margin:12px 0 6px;font-size:14px;color:var(--muted);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{min-height:40px;padding:0 14px;font-size:15px;font-weight:500;background:var(--chip);border-radius:999px}
+.chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-text);font-weight:700}
+.thumbs{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 12px}
+.thumbs figure{position:relative;margin:0;flex:0 0 auto;width:84px;height:84px;border-radius:12px;overflow:hidden;border:1px solid var(--line)}
+.thumbs img{width:100%;height:100%;object-fit:cover}
+.thumbs button{position:absolute;top:3px;left:3px;min-height:26px;width:26px;padding:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:14px}
+.bar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);color:var(--muted);font-size:14px}
+.tools{display:flex;gap:6px}.tools button{min-height:36px;padding:0 12px;font-size:14px;font-weight:500;background:var(--chip);border-radius:10px}
+textarea{display:block;width:100%;min-height:340px;border:0;background:transparent;color:var(--text);font-family:"Frank Ruhl Libre",serif;font-size:21px;line-height:1.95;padding:20px;resize:vertical}
+textarea.sans{font-family:Heebo,Arial,sans-serif}textarea:focus{outline:none}
+.err{margin-top:14px;padding:12px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--accent)}
+.dirty{margin-top:12px;text-align:center;color:var(--accent);font-weight:700;font-size:14px}
+.hist{margin-top:22px}.hist h2{font-size:16px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
+.hist h2 button{min-height:32px;font-size:13px;background:none;color:var(--muted);font-weight:500}
+.hi{display:block;width:100%;text-align:start;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:8px;font-weight:400;min-height:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actions{position:fixed;inset:auto 0 0 0;padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,var(--bg) 65%,transparent);z-index:5}
+.actions .in{display:flex;gap:8px;max-width:760px;margin:0 auto}
+.actions .primary{flex:1;font-size:18px;min-height:54px}.actions .ghost{min-height:54px;padding:0 14px}
+.faq{margin-top:40px;color:var(--muted);font-size:15px}.faq h2{font-size:18px;color:var(--text)}.faq h3{font-size:15px;margin:14px 0 2px;color:var(--text)}.faq p{margin:0}
+</style>
+</head>
+<body>
+<main>
+<header><div class="logo" aria-hidden="true">✎</div><h1>מתמלל</h1><p class="sub">מצלמים או מעלים תמונה, ומקבלים טקסט נקי להעתקה</p></header>
+
+<div id="start">
+<div class="srcs">
+<label class="src"><input type="file" id="cam" accept="image/*" capture="environment"><span class="ic" aria-hidden="true">📷</span><b>צילום</b><small>פותח את המצלמה</small></label>
+<label class="src"><input type="file" id="gal" accept="image/*" multiple><span class="ic" aria-hidden="true">🖼️</span><b>בחירה מהגלריה</b><small>אפשר כמה ביחד</small></label>
+</div>
+<p class="hint">אפשר גם לגרור תמונה לכאן או להדביק אותה (Ctrl+V)</p>
+</div>
+
+<details class="card" id="optsBox"><summary>⚙️ אפשרויות תמלול</summary><div class="og" id="opts"></div></details>
+
+<div id="result" hidden>
+<div class="thumbs" id="thumbs"></div>
+<div class="card" id="paper">
+<div class="bar"><span id="status">מתמלל…</span><div class="tools"><button id="fm" aria-label="הקטנת גופן">א−</button><button id="fp" aria-label="הגדלת גופן">א+</button><button id="ft">גופן</button></div></div>
+<textarea id="out" dir="auto" spellcheck="false" aria-label="הטקסט המתומלל" placeholder="הטקסט יופיע כאן…"></textarea>
+</div>
+<div class="dirty" id="dirty" hidden>שינית אפשרויות. לחצו "↻ מחדש".</div>
+<div class="err" id="err" hidden role="alert"></div>
+</div>
+
+<section class="hist" id="hist" hidden><h2><span>תמלולים אחרונים (נשמרים במכשיר שלך)</span><button id="clearH">מחיקה</button></h2><div id="histList"></div></section>
+
+<section class="faq">
+<h2>שאלות נפוצות</h2>
 <h3>איך ממירים תמונה לטקסט?</h3><p>מצלמים או בוחרים תמונה, והטקסט מופיע תוך שניות. לוחצים על "העתקה" ומדביקים בכל מקום.</p>
 <h3>האם זה עובד בעברית ובכתב יד?</h3><p>כן. האתר קורא עברית, אנגלית ושפות נוספות, וגם כתב יד קריא.</p>
 <h3>האם זה בחינם?</h3><p>כן, עם מגבלה יומית של מספר תמלולים לכל כתובת אינטרנט (IP).</p>
