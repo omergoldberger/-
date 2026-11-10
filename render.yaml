@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: matmalel
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SITE_URL
+        sync: false
+      - key: GOOGLE_SITE_VERIFICATION
+        sync: false
+      - key: DAILY_LIMIT
+        value: "15"
+      - key: GLOBAL_DAILY_LIMIT
+        value: "500"
